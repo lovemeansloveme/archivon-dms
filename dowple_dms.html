@@ -2479,7 +2479,11 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
-    const STORAGE_KEY = "dowple_dms_single_file_state_v1";
+    const STORAGE_KEY = "archivon_dms_state_ko_v1";
+    const LEGACY_STORAGE_KEY = "dowple_dms_single_file_state_v1";
+    const FOLDER_RULES_STORAGE_KEY = "archivon_folder_rules_ko";
+    const DICTIONARY_STORAGE_KEY = "archivon_dictionary_ko";
+    const LEARNING_EXAMPLES_STORAGE_KEY = "archivon_learning_examples_ko";
     const DEFAULT_TEAM_ID = "demo-team";
     const TEAM_OPTIONS = [
       { id: "demo-team", name: "Archivon Demo Team" },
@@ -2678,6 +2682,44 @@
       }
     ];
 
+    const FOLDER_LABELS_KO = {
+      notice: "공고/양식",
+      plan: "사업계획서/수행계획서",
+      research: "조사자료",
+      presentation: "발표자료",
+      contract: "계약/정산",
+      other: "기타",
+      report: "보고서/리포트",
+      meeting: "회의록/메모",
+      education: "교육/학습자료",
+      hr: "인사/채용",
+      finance: "재무/회계",
+      purchase: "구매/발주",
+      sales: "영업/고객관리",
+      marketing: "마케팅/홍보",
+      tech: "기술/개발문서",
+      certificate: "증명서/인증서"
+    };
+    const FOLDER_LABELS_EN = {
+      notice: "Notices / Forms",
+      plan: "Business / Execution Plans",
+      research: "Research Materials",
+      presentation: "Presentation Decks",
+      contract: "Contracts / Settlement",
+      other: "Other",
+      report: "Reports",
+      meeting: "Meeting Notes / Memos",
+      education: "Training / Learning Materials",
+      hr: "HR / Recruiting",
+      finance: "Finance / Accounting",
+      purchase: "Purchasing / Orders",
+      sales: "Sales / CRM",
+      marketing: "Marketing / PR",
+      tech: "Technical / Development Docs",
+      certificate: "Certificates / Official Proofs"
+    };
+    const FOLDER_LABELS = FOLDER_LABELS_KO;
+
     const PAGE_META = {
       dashboard: ["대시보드", "현재 팀의 문서 현황과 자동 분류 성과를 확인합니다."],
       upload: ["문서 업로드", "업로드된 문서를 3단계 파이프라인으로 분류하고 저장합니다."],
@@ -2726,7 +2768,7 @@
       return {
         ...defaultFilterState(),
         ...(filters && typeof filters === "object" ? filters : {}),
-        folder: (filters && filters.folder) || legacyFolder || ""
+        folder: localizeFolderName((filters && filters.folder) || legacyFolder || "")
       };
     }
 
@@ -5128,7 +5170,8 @@
           ),
           ...rec,
           folderId: folder.id,
-          folder: rec.folder || rec.category || folder.name,
+          folder: folder.name,
+          category: folder.name,
           icon: rec.icon || folder.icon
         };
       });
@@ -5170,7 +5213,7 @@
         recs,
         foundTerms: getDictionaryHits(`${backendItem.filename || ""} ${backendItem.evidence_package || ""}`),
         selectedFolderId: suggestedId || recs[0].folderId || "other",
-        selectedFolder: backendItem.suggested_category || folder.name || recs[0].folder,
+        selectedFolder: folder.name || recs[0].folder,
         reasons: reasonText ? reasonText.split(/\s*\/\s*|\n/).filter(Boolean) : reviewReasons(recs),
         duplicateWarning: null,
         backendDuplicateWarning: null,
@@ -5974,7 +6017,7 @@
       const feedbackScore = Number(rec.feedbackScore || rec.feedback_score || 0);
       return {
         folderId: folder.id,
-        folder: rec.folder || rec.category || folder.name,
+        folder: folder.name,
         icon: rec.icon || folder.icon,
         score: clamp(Math.round(score), 0, 100),
         matched,
@@ -5984,7 +6027,7 @@
         nameScore: Number(rec.nameScore || rec.name_score || 0),
         feedbackScore,
         feedbackApplied: Boolean(rec.feedbackApplied || rec.feedback_applied || feedbackScore > 0),
-        reason: rec.reason || buildDetailClassificationReason(doc, { folder: rec.folder || folder.name, matched, contextMatched })
+        reason: rec.reason || buildDetailClassificationReason(doc, { folder: folder.name, matched, contextMatched })
       };
     }
 
@@ -5995,7 +6038,7 @@
       const contextMatched = Array.isArray(doc.contextMatched) ? doc.contextMatched : [];
       return {
         folderId: folder.id,
-        folder: doc.category || folder.name,
+        folder: folder.name,
         icon: folder.icon,
         score: clamp(Math.round(Number(doc.confidence || 0)), 0, 100),
         matched,
@@ -7222,10 +7265,49 @@
       return "document";
     }
 
+    function getFolderDisplayName(folderId) {
+      const id = String(folderId || "").trim();
+      const fallback = FOLDERS.find((folder) => folder.id === id);
+      return FOLDER_LABELS[id] || (fallback ? fallback.name : "");
+    }
+
+    function getFolderIdByAnyLabel(folderName) {
+      const value = String(folderName || "").trim();
+      if (!value) return "";
+      const labelSources = [FOLDER_LABELS_KO, FOLDER_LABELS_EN];
+      for (const labels of labelSources) {
+        const match = Object.entries(labels).find(([, label]) => label === value);
+        if (match) return match[0];
+      }
+      const base = FOLDERS.find((folder) => folder.name === value);
+      return base ? base.id : "";
+    }
+
+    function localizeFolderName(folderNameOrId) {
+      const value = String(folderNameOrId || "").trim();
+      if (!value) return "";
+      const id = FOLDER_LABELS[value] ? value : getFolderIdByAnyLabel(value);
+      return id ? getFolderDisplayName(id) : value;
+    }
+
+    function normalizeRecommendationList(recommendations) {
+      return (Array.isArray(recommendations) ? recommendations : []).map((rec) => {
+        const folderId = rec.folderId || rec.folder_id || getFolderIdByAnyLabel(rec.folder || rec.category || "") || "other";
+        const folderName = getFolderDisplayName(folderId);
+        return {
+          ...rec,
+          folderId,
+          folder_id: folderId,
+          folder: folderName,
+          category: folderName
+        };
+      });
+    }
+
     function cloneFolderRules(rules = FOLDERS) {
       return rules.map((folder) => ({
         id: folder.id,
-        name: folder.name,
+        name: getFolderDisplayName(folder.id) || folder.name,
         icon: folder.icon,
         keywords: [...(folder.keywords || [])],
         description: folder.description || "",
@@ -7237,11 +7319,11 @@
     function normalizeFolderRules(savedRules) {
       const saved = Array.isArray(savedRules) ? savedRules : [];
       return FOLDERS.map((base) => {
-        const custom = saved.find((rule) => rule.id === base.id || rule.folder_id === base.id || rule.name === base.name) || {};
+        const custom = saved.find((rule) => rule.id === base.id || rule.folder_id === base.id || rule.name === base.name || getFolderIdByAnyLabel(rule.name) === base.id) || {};
         const contextValue = custom.contextTerms ?? custom.context_terms ?? base.contextTerms.join(", ");
         return {
           id: base.id,
-          name: String(custom.name || base.name).trim() || base.name,
+          name: getFolderDisplayName(base.id) || base.name,
           icon: String(custom.icon || base.icon).trim() || base.icon,
           keywords: parseListValue(Array.isArray(custom.keywords) ? custom.keywords.join(", ") : custom.keywords || base.keywords.join(", ")),
           description: String(custom.description || base.description || "").trim(),
@@ -7267,8 +7349,7 @@
     function getFolderIdByName(folderName) {
       const current = getFolderRules().find((folder) => folder.name === folderName);
       if (current) return current.id;
-      const base = FOLDERS.find((folder) => folder.name === folderName);
-      return base ? base.id : "";
+      return getFolderIdByAnyLabel(folderName);
     }
 
     function parseListValue(value) {
@@ -7318,6 +7399,8 @@
         const categoryId = doc.categoryId || getFolderIdByName(doc.category || "") || "other";
         const rule = getFolderRuleById(categoryId);
         const teamId = normalizeTeamId(doc.teamId || doc.team_id || DEFAULT_TEAM_ID);
+        const recs = normalizeRecommendationList(Array.isArray(doc.recs) ? doc.recs : Array.isArray(doc.recommendations) ? doc.recommendations : []);
+        const categoryName = getFolderDisplayName(categoryId) || rule.name;
         return {
           ...doc,
           teamId,
@@ -7325,11 +7408,11 @@
           team_id: teamId,
           team_name: getTeamName(teamId),
           categoryId,
-          category: doc.category || rule.name,
+          category: categoryName,
           matched: Array.isArray(doc.matched) ? doc.matched : [],
           contextMatched: Array.isArray(doc.contextMatched) ? doc.contextMatched : [],
-          recs: Array.isArray(doc.recs) ? doc.recs : Array.isArray(doc.recommendations) ? doc.recommendations : [],
-          recommendations: Array.isArray(doc.recommendations) ? doc.recommendations : Array.isArray(doc.recs) ? doc.recs : [],
+          recs,
+          recommendations: recs,
           confidence: Number.isFinite(Number(doc.confidence)) ? Number(doc.confidence) : 0,
           classificationDecision: doc.classificationDecision || "",
           backendId: doc.backendId || "",
@@ -7353,6 +7436,8 @@
         const matchedKeywords = Array.isArray(example.matchedKeywords) ? example.matchedKeywords : [];
         const contextTerms = Array.isArray(example.contextTerms) ? example.contextTerms : [];
         const teamId = normalizeTeamId(example.teamId || example.team_id || DEFAULT_TEAM_ID);
+        const selectedFolderId = example.selectedFolderId || example.categoryId || getFolderIdByName(example.selectedFolder || example.category || "기타") || "other";
+        const selectedFolder = getFolderDisplayName(selectedFolderId) || getFolderRuleById(selectedFolderId).name;
         return {
           filename: example.filename || "이전 저장 문서",
           evidence: example.evidence || "",
@@ -7360,8 +7445,8 @@
           teamName: getTeamName(teamId),
           team_id: teamId,
           team_name: getTeamName(teamId),
-          selectedFolderId: example.selectedFolderId || example.categoryId || getFolderIdByName(example.selectedFolder || example.category || "기타") || "other",
-          selectedFolder: example.selectedFolder || example.category || "기타",
+          selectedFolderId,
+          selectedFolder,
           matchedKeywords,
           contextTerms,
           savedAt: example.savedAt || "",
@@ -7378,6 +7463,8 @@
         const matchedKeywords = Array.isArray(doc.matched) ? doc.matched : [];
         const contextTerms = Array.isArray(doc.contextMatched) ? doc.contextMatched : [];
         const teamId = normalizeTeamId(doc.teamId || doc.team_id || DEFAULT_TEAM_ID);
+        const selectedFolderId = doc.categoryId || getFolderIdByName(doc.category || "기타") || "other";
+        const selectedFolder = getFolderDisplayName(selectedFolderId) || getFolderRuleById(selectedFolderId).name;
         return {
           filename: doc.filename || "저장 문서",
           evidence: doc.evidence || doc.summary || "",
@@ -7385,8 +7472,8 @@
           teamName: getTeamName(teamId),
           team_id: teamId,
           team_name: getTeamName(teamId),
-          selectedFolderId: doc.categoryId || getFolderIdByName(doc.category || "기타") || "other",
-          selectedFolder: doc.category || "기타",
+          selectedFolderId,
+          selectedFolder,
           matchedKeywords,
           contextTerms,
           savedAt: doc.savedAt || "",
@@ -7499,23 +7586,60 @@
       state.folderRulesByTeam[teamId] = cloneFolderRules(currentRules);
     }
 
+    function readLocalJSON(key, fallback = null) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch (error) {
+        return fallback;
+      }
+    }
+
+    function getSavedStateSnapshot() {
+      return readLocalJSON(STORAGE_KEY, null) || readLocalJSON(LEGACY_STORAGE_KEY, {}) || {};
+    }
+
+    function normalizeReviewQueueItems(items) {
+      return (Array.isArray(items) ? items : []).map((item) => {
+        const recs = normalizeRecommendationList(item.recs || item.recommendations || []);
+        const selectedFolderId = item.selectedFolderId || item.suggestedCategoryId || item.suggested_category_id || getFolderIdByName(item.selectedFolder || item.suggestedCategory || item.suggested_category || "") || (recs[0] && recs[0].folderId) || "other";
+        const selectedFolder = getFolderDisplayName(selectedFolderId) || getFolderRuleById(selectedFolderId).name;
+        const teamId = normalizeTeamId(item.teamId || item.team_id || DEFAULT_TEAM_ID);
+        return {
+          ...item,
+          teamId,
+          teamName: getTeamName(teamId),
+          team_id: teamId,
+          team_name: getTeamName(teamId),
+          recs,
+          recommendations: recs,
+          selectedFolderId,
+          selectedFolder
+        };
+      });
+    }
+
     function loadState() {
       try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        const saved = getSavedStateSnapshot();
+        const savedFolderRules = readLocalJSON(FOLDER_RULES_STORAGE_KEY, null);
+        const savedFolderRulesPayload = Array.isArray(savedFolderRules) ? { folderRules: savedFolderRules } : (savedFolderRules || {});
+        const savedDict = readLocalJSON(DICTIONARY_STORAGE_KEY, null);
+        const savedLearnedExamples = readLocalJSON(LEARNING_EXAMPLES_STORAGE_KEY, null);
         const teamId = normalizeTeamId(saved.teamId || saved.team_id || DEFAULT_TEAM_ID);
-        const folderRulesByTeam = buildFolderRulesByTeam(saved.folderRulesByTeam, saved.folderRules, teamId);
+        const folderRulesByTeam = buildFolderRulesByTeam(savedFolderRulesPayload.folderRulesByTeam, savedFolderRulesPayload.folderRules, teamId);
         state = {
           docs: [],
           docsByTeam: {},
           teamId,
-          teamName: saved.teamName || saved.team_name || getTeamName(teamId),
+          teamName: getTeamName(teamId),
           team_id: teamId,
-          team_name: saved.teamName || saved.team_name || getTeamName(teamId),
-          dict: { ...DEFAULT_DICT, ...(saved.dict || {}) },
+          team_name: getTeamName(teamId),
+          dict: { ...DEFAULT_DICT, ...((savedDict && typeof savedDict === "object") ? savedDict : {}) },
           learnedExamples: [],
           folderRules: [],
           folderRulesByTeam,
-          reviewQueue: Array.isArray(saved.reviewQueue) ? saved.reviewQueue : [],
+          reviewQueue: normalizeReviewQueueItems(saved.reviewQueue),
           selectedFolder: saved.selectedFolder || "",
           filters: normalizeFilterState(saved.filters, saved.selectedFolder || ""),
           activeTab: saved.activeTab || "upload",
@@ -7525,8 +7649,8 @@
         state.docsByTeam = buildDocsByTeam(saved.docsByTeam, saved.docs);
         state.docs = docsForTeam(teamId);
         state.folderRules = folderRulesForTeam(teamId);
-        state.learnedExamples = Array.isArray(saved.learnedExamples)
-          ? normalizeLearnedExamples(saved.learnedExamples)
+        state.learnedExamples = Array.isArray(savedLearnedExamples)
+          ? normalizeLearnedExamples(savedLearnedExamples)
           : buildLearnedExamplesFromDocs(state.docs);
       } catch (error) {
         state = {
@@ -7555,6 +7679,12 @@
         cacheCurrentTeamDocs();
         cacheCurrentTeamFolderRules();
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        localStorage.setItem(FOLDER_RULES_STORAGE_KEY, JSON.stringify({
+          folderRules: state.folderRules,
+          folderRulesByTeam: state.folderRulesByTeam
+        }));
+        localStorage.setItem(DICTIONARY_STORAGE_KEY, JSON.stringify(state.dict));
+        localStorage.setItem(LEARNING_EXAMPLES_STORAGE_KEY, JSON.stringify(state.learnedExamples));
         updateStorageStatus();
         updateLearningStatus();
       } catch (error) {
